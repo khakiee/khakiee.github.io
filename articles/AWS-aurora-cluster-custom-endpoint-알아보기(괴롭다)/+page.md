@@ -9,22 +9,25 @@ thumbnail:
 
 서버에 장애가 발생했다. 원인은 사내에서 사용하고 있던 aurora cluster의 automatic minor update 옵션이 켜져있었고, minor update 가 진행되면서 writer instance 가 중지된 것이다.
 	- 다만 이 상황에서는 read replica 메커니즘이나 failover 가 정상적으로 동작했어야 하지만 모든 read 요청이 fail 했다. (minor update 완료 이후에도 계속)
-	- 이 상황에서 예상되는 시나리오는 다음과 같았다
-		- (전제) 우리 서버는 read replica 를 custom endpoint 를 통해 접속하고 있다
-		1. read instance 가 writer instance 가 되면서 custom endpoint 에서 빠졌다
-		2. custom endpoint 설정에서 exclusion list 로 기존 writer instance를 설정해둔 상태였다
-		3. 따라서 read instance 로 역할이 변경된 writer 였던 instance 가 endpoint 에서 제외되면서 endpoint 에 연결된 instance 가 없어져 모든 요청을 처리할 수 없었다
-	- 하지만 위 시나리오일 확률이 높지 않다고 생각했던 이유들이 몇가지 있는데,
-		1. custom endpoint 에서 reader로 지정된 instance들만 가져오는게 맞는지 모른다
-		2. failover된 이후에는 그럼 writer였던 instance가 reader로 바뀌는 경우에도 해당 instance를 엔드포인트에 넣어주는지, 그렇지 않은지 모른다 
-			- cluster endpoint 는 이런 기능을 지원해주는 것으로 알고 있었는데, custom endpoint 는 이걸 안해주는게 이상하다고 생각했다
+### 예상되는 장애 시나리오
+
+(전제) 우리 서버는 read replica 를 custom endpoint 를 통해 접속하고 있다
+
+1. read instance 가 writer instance 가 되면서 custom endpoint 에서 빠졌다
+2. custom endpoint 설정에서 exclusion list 로 기존 writer instance를 설정해둔 상태였다
+3. 따라서 read instance 로 역할이 변경된 writer 였던 instance 가 endpoint 에서 제외되면서 endpoint 에 연결된 instance 가 없어져 모든 요청을 처리할 수 없었다
+
+하지만 위 시나리오일 확률이 높지 않다고 생각했던 이유들이 몇가지 있는데,
+  
+1. custom endpoint 에서 reader로 지정된 instance들만 가져오는게 맞는지 모른다
+2. failover된 이후에는 그럼 writer였던 instance가 reader로 바뀌는 경우에도 해당 instance를 엔드포인트에 넣어주는지, 그렇지 않은지 모른다 
+  - cluster endpoint 는 이런 기능을 지원해주는 것으로 알고 있었는데, custom endpoint 는 이걸 안해주는게 이상하다고 생각했다
 
 ## Custom endpoint 관련 문서 정독
 
 - custom endpoint는 cluster db instance 의 연결을 제어하고 간편하게 사용하기 위한 목적으로 사용한다
   - 엔드포인트에 등록된 특정 인스턴스들의 그룹을 대상으로 로드밸런싱을 해준다
-- 어떤 인스턴스들이 endpoint와 연관되는지 결정할 수 있는 Type이 있다
-  - (READER, WRITER, ANY)
+- 어떤 인스턴스들이 endpoint와 연관되는지 결정할 수 있는 Type이 있다 (READER, WRITER, ANY)
 - Type은 AWS management console 에서 지정할 수 없으며 management console에서 생성하는 모든 엔드포인트는 ANY 타입으로 생성된다
   - AWS CLI/ RDS API 를 통해서만 가능
   - READER 타입은 **read-only Replica 만** 포함된다
@@ -64,19 +67,23 @@ thumbnail:
 - AWS 는 대충 다 계획이 있구나..
 
 ## TODO
+
 - 그래도 아직 장애 시나리오가 맞는지 확신이 안서니 test 서버에서 cluster를 띄워보고 failover 시나리오를 재현해볼 예정이다
 
-### 장애 재현
+### 장애 재현 해보기
+
 - 방법
   - cluster를 하나 만들고 writer, read replica 를 생성한다
   - writer를 장애 조치한다
-- failover test 에서 확인해야 할 것들
-  1. READER로 설정한 경우 writer가 죽고 reader가 승격된 상황에서 얼마나 큰 다운타임이 생기는가?
+
+#### failover test 에서 확인해야 할 것들
+  
+1. READER로 설정한 경우 writer가 죽고 reader가 승격된 상황에서 얼마나 큰 다운타임이 생기는가?
     - (결과) 장애 유형에 따라 다른 것 같아서 측정 불가
-  2. READER로 설정한 경우 RR 이 생기면 자동으로 endpoint에 잘 추가되는가?
-    - (결과) ReadReplica 가 writer로 변경되고, failover 된 instance(writer 였던 instance)가 ReadReplica로 작동하도록 변경된다
-  3. ANY로 설정한 경우 writer가 죽고 reader가 승격된 상황에서 요청이 정상적으로 전달되는 상태인가?
-    - (결과) 사실 걱정할 필요가 없던 부분이다. 2개의 instance 가 동시에 죽는 상황이 아니면 괜찮을 것
+2. READER로 설정한 경우 RR 이 생기면 자동으로 endpoint에 잘 추가되는가?
+  - (결과) ReadReplica 가 writer로 변경되고, failover 된 instance(writer 였던 instance)가 ReadReplica로 작동하도록 변경된다
+3. ANY로 설정한 경우 writer가 죽고 reader가 승격된 상황에서 요청이 정상적으로 전달되는 상태인가?
+  - (결과) 사실 걱정할 필요가 없던 부분이다. 2개의 instance 가 동시에 죽는 상황이 아니면 괜찮을 것
   
 ## 앞으로 어떻게 대처할 것인가?
 
@@ -84,12 +91,17 @@ thumbnail:
   - READER 타입이라 reader만 가져오는데, 존재하지도 않는 writer 를 제외하고 있기는 하다...
 - 전제1) RR은 하나만 뜨고 있는 상태이다
 
-1. 만든 endpoint 를 ANY 타입으로 변경하자
-  - 장애가 발생하면 read replica 가 writer로 승격되고, writer가 read replica가 되는데, 이 때 read replica로 변경된 것이 제외될 것이다 (RDS API로 만들었기 때문에)
-    - 이 때문에 장애 발생 이후의 디버깅이 어려워지지는 않을까 두려웠다 (나의 기우였던걸로...)
-  - spring 에서 특정 트랜잭션에 annotation을 붙이면 read replica 로만 요청을 전송하게 하고 있는데, 이렇게 되면 장애 발생 이후에는 read replica 로만 전송하는게 아닌 것이 되어버려서 코드로는 알 수 없는 암묵적인 동작이 생겨버리기 때문에 마음에 들지 않는 상태
-2. 굳이 writer 를 제외하지 말자
-  - WRITER가 죽고 RR이 WRITER로 승격된 상황에서 data, WRITER(RR이였던 것) 만 남는 상황에는 failover될 동안 다운타임이 생길 수 있다.
-  - RR이 2개 이상 존재한다면 이 방법이 적절한 것 같다.
+### 만든 endpoint 를 ANY 타입으로 변경하자
+
+- 장애가 발생하면 read replica 가 writer로 승격되고, writer가 read replica가 되는데, 이 때 read replica로 변경된 것이 제외될 것이다 (RDS API로 만들었기 때문에)
+  - 이 때문에 장애 발생 이후의 디버깅이 어려워지지는 않을까 두려웠다 (나의 기우였던걸로...)
+- spring 에서 특정 트랜잭션에 annotation을 붙이면 read replica 로만 요청을 전송하게 하고 있는데, 이렇게 되면 장애 발생 이후에는 read replica 로만 전송하는게 아닌 것이 되어버려서 코드로는 알 수 없는 암묵적인 동작이 생겨버리기 때문에 마음에 들지 않는 상태
+
+### 굳이 writer 를 제외하지 말자
+
+- WRITER가 죽고 RR이 WRITER로 승격된 상황에서 data, WRITER(RR이였던 것) 만 남는 상황에는 failover될 동안 다운타임이 생길 수 있다.
+- RR이 2개 이상 존재한다면 이 방법이 적절한 것 같다.
+
+### 선택
 
 이번에는 일단 오는 주말에 aurora cluster update 가 예정되어 있다고 메일이 온 탓에 가장 안정적으로 클러스터를 굴릴 수 있도록 1번 방법을 선책했다. 다만 tfstate 와 현재 infra 상태가 어긋난 상태가 있어서 일단은 cli로 변경하고 tfstate 부터 복구하기로 했다... IaaC 에 최적화된 인프라 관리에 좀 더 익숙해져야 할 듯
