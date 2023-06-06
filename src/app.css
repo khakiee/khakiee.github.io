@@ -1153,3 +1153,7 @@ div.container.mx-auto.min-h-screen > ul > li > a {
     object-fit: cover;
   }
 }
+
+#global-layout {
+  max-width: min(80%, calc(80% - var(--gutter)));
+}

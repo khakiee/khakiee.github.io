@@ -5,7 +5,7 @@
 </script>
 
 <Header />
-<div class="container mx-auto min-h-screen max-w-3xl">
+<div id="global-layout" class="container min-h-screen">
   <slot/>
 </div>
-<Footer />  
+<Footer />
